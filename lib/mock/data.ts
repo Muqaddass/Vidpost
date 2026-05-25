@@ -1,0 +1,131 @@
+// Mock fixtures used when MOCK_MODE=1. Lets the dashboard UI render without Supabase.
+import type {
+  ConnectedAccountRow,
+  PostResultRow,
+  PostRow,
+} from "@/lib/types/database";
+
+export const MOCK_USER = {
+  id: "00000000-0000-0000-0000-000000000001",
+  email: "demo@vidpost.app",
+  aud: "authenticated",
+  role: "authenticated",
+  created_at: new Date().toISOString(),
+};
+
+export const MOCK_ACCOUNTS: ConnectedAccountRow[] = [
+  {
+    id: "ca-1",
+    user_id: MOCK_USER.id,
+    platform: "tiktok",
+    platform_user_id: "tt_123",
+    platform_username: "@vidpost_demo",
+    platform_avatar: null,
+    access_token: "encrypted:demo",
+    refresh_token: "encrypted:demo",
+    token_expires_at: new Date(Date.now() + 86_400_000).toISOString(),
+    scope: null,
+    created_at: new Date(Date.now() - 7 * 86_400_000).toISOString(),
+    updated_at: new Date(Date.now() - 7 * 86_400_000).toISOString(),
+  },
+  {
+    id: "ca-2",
+    user_id: MOCK_USER.id,
+    platform: "youtube",
+    platform_user_id: "yt_456",
+    platform_username: "VidPost Demo Channel",
+    platform_avatar: null,
+    access_token: "encrypted:demo",
+    refresh_token: "encrypted:demo",
+    token_expires_at: new Date(Date.now() + 3_600_000).toISOString(),
+    scope: null,
+    created_at: new Date(Date.now() - 3 * 86_400_000).toISOString(),
+    updated_at: new Date(Date.now() - 3 * 86_400_000).toISOString(),
+  },
+  {
+    id: "ca-3",
+    user_id: MOCK_USER.id,
+    platform: "linkedin",
+    platform_user_id: "li_789",
+    platform_username: "Demo User",
+    platform_avatar: null,
+    access_token: "encrypted:demo",
+    refresh_token: "encrypted:demo",
+    token_expires_at: new Date(Date.now() + 30 * 86_400_000).toISOString(),
+    scope: null,
+    created_at: new Date(Date.now() - 14 * 86_400_000).toISOString(),
+    updated_at: new Date(Date.now() - 14 * 86_400_000).toISOString(),
+  },
+];
+
+export const MOCK_POSTS: PostRow[] = [
+  {
+    id: "post-1",
+    user_id: MOCK_USER.id,
+    title: "Spring product launch",
+    caption: "We just shipped something we've been working on for months — meet the new VidPost.",
+    media_url: "https://placehold.co/600x400/png",
+    media_type: "video",
+    platforms: ["tiktok", "youtube", "linkedin"],
+    status: "published",
+    scheduled_at: null,
+    published_at: new Date(Date.now() - 2 * 3_600_000).toISOString(),
+    created_at: new Date(Date.now() - 2 * 3_600_000).toISOString(),
+    updated_at: new Date(Date.now() - 2 * 3_600_000).toISOString(),
+  },
+  {
+    id: "post-2",
+    user_id: MOCK_USER.id,
+    title: null,
+    caption: "Behind the scenes from yesterday's shoot ✨",
+    media_url: "https://placehold.co/600x400/png",
+    media_type: "video",
+    platforms: ["tiktok", "linkedin"],
+    status: "published",
+    scheduled_at: null,
+    published_at: new Date(Date.now() - 26 * 3_600_000).toISOString(),
+    created_at: new Date(Date.now() - 26 * 3_600_000).toISOString(),
+    updated_at: new Date(Date.now() - 26 * 3_600_000).toISOString(),
+  },
+  {
+    id: "post-3",
+    user_id: MOCK_USER.id,
+    title: null,
+    caption: "Quick tip Tuesday — three ways to repurpose long-form content",
+    media_url: "https://placehold.co/600x400/png",
+    media_type: "video",
+    platforms: ["youtube", "linkedin"],
+    status: "failed",
+    scheduled_at: null,
+    published_at: null,
+    created_at: new Date(Date.now() - 3 * 86_400_000).toISOString(),
+    updated_at: new Date(Date.now() - 3 * 86_400_000).toISOString(),
+  },
+  {
+    id: "post-4",
+    user_id: MOCK_USER.id,
+    title: null,
+    caption: "Drafting a thread about creator economics — coming soon",
+    media_url: null,
+    media_type: null,
+    platforms: ["linkedin"],
+    status: "draft",
+    scheduled_at: null,
+    published_at: null,
+    created_at: new Date(Date.now() - 5 * 86_400_000).toISOString(),
+    updated_at: new Date(Date.now() - 5 * 86_400_000).toISOString(),
+  },
+];
+
+export const MOCK_POST_RESULTS: PostResultRow[] = [
+  // post-1 fully successful
+  { id: "r-1", post_id: "post-1", platform: "tiktok",   status: "success", platform_post_id: "tt_111", platform_post_url: null, error_message: null, created_at: new Date().toISOString() },
+  { id: "r-2", post_id: "post-1", platform: "youtube",  status: "success", platform_post_id: "yt_222", platform_post_url: "https://youtu.be/yt_222", error_message: null, created_at: new Date().toISOString() },
+  { id: "r-3", post_id: "post-1", platform: "linkedin", status: "success", platform_post_id: "li_333", platform_post_url: null, error_message: null, created_at: new Date().toISOString() },
+  // post-2 fully successful
+  { id: "r-4", post_id: "post-2", platform: "tiktok",   status: "success", platform_post_id: "tt_444", platform_post_url: null, error_message: null, created_at: new Date().toISOString() },
+  { id: "r-5", post_id: "post-2", platform: "linkedin", status: "success", platform_post_id: "li_555", platform_post_url: null, error_message: null, created_at: new Date().toISOString() },
+  // post-3 mixed failure
+  { id: "r-6", post_id: "post-3", platform: "youtube",  status: "failed",  platform_post_id: null, platform_post_url: null, error_message: "Quota exceeded — try again tomorrow", created_at: new Date().toISOString() },
+  { id: "r-7", post_id: "post-3", platform: "linkedin", status: "failed",  platform_post_id: null, platform_post_url: null, error_message: "Asset upload timed out", created_at: new Date().toISOString() },
+];
