@@ -10,7 +10,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-const PLATFORMS = ["tiktok", "instagram", "youtube", "linkedin", "pinterest"] as const;
+const PLATFORMS = ["tiktok", "instagram", "youtube", "linkedin", "pinterest", "facebook"] as const;
 
 const schema = z.object({
   title: z.string().max(200).optional(),

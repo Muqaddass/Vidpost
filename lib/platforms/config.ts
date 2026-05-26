@@ -50,6 +50,14 @@ export const PLATFORMS: Record<Platform, PlatformMeta> = {
     acceptsVideo: true,
     acceptsImage: true,
   },
+  facebook: {
+    id: "facebook",
+    name: "Facebook",
+    brandColor: "#1877F2",
+    blurb: "Post to a Facebook Page you manage.",
+    acceptsVideo: true,
+    acceptsImage: true,
+  },
 };
 
 export const PLATFORM_LIST: PlatformMeta[] = Object.values(PLATFORMS);

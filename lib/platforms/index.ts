@@ -5,6 +5,7 @@ import { instagramAdapter } from "./instagram";
 import { youtubeAdapter } from "./youtube";
 import { linkedinAdapter } from "./linkedin";
 import { pinterestAdapter } from "./pinterest";
+import { facebookAdapter } from "./facebook";
 
 export const adapters: Record<Platform, PlatformAdapter> = {
   tiktok: tiktokAdapter,
@@ -12,6 +13,7 @@ export const adapters: Record<Platform, PlatformAdapter> = {
   youtube: youtubeAdapter,
   linkedin: linkedinAdapter,
   pinterest: pinterestAdapter,
+  facebook: facebookAdapter,
 };
 
 export function getAdapter(platform: Platform): PlatformAdapter {

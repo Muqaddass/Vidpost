@@ -6,7 +6,7 @@ import { getSupabaseAdmin } from "@/lib/supabase/admin";
 export const dynamic = "force-dynamic";
 
 const schema = z.object({
-  platform: z.enum(["tiktok", "instagram", "youtube", "linkedin", "pinterest"]),
+  platform: z.enum(["tiktok", "instagram", "youtube", "linkedin", "pinterest", "facebook"]),
 });
 
 export async function POST(req: NextRequest) {

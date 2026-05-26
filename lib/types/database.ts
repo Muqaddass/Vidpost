@@ -6,7 +6,8 @@ export type Platform =
   | "instagram"
   | "youtube"
   | "linkedin"
-  | "pinterest";
+  | "pinterest"
+  | "facebook";
 
 export type PostStatus =
   | "draft"
