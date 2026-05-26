@@ -9,7 +9,12 @@ const LONG_LIVED_URL = "https://graph.instagram.com/access_token";
 const REFRESH_URL = "https://graph.instagram.com/refresh_access_token";
 const ME_URL =
   "https://graph.instagram.com/me?fields=id,username,account_type,profile_picture_url";
-const SCOPES = ["instagram_business_basic", "instagram_content_publish"].join(",");
+// Meta renamed these — newer names use the "business" prefix.
+// We only need basic profile + publishing; skip messages/comments/insights.
+const SCOPES = [
+  "instagram_business_basic",
+  "instagram_business_content_publish",
+].join(",");
 
 const GRAPH = "https://graph.instagram.com/v22.0";
 
