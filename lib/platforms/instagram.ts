@@ -53,13 +53,16 @@ export const instagramAdapter: PlatformAdapter = {
     const shortJson = await shortRes.json();
     const shortToken: string = shortJson.access_token;
 
-    // Step 2: exchange for long-lived (60 days)
-    const longParams = new URLSearchParams({
-      grant_type: "ig_exchange_token",
-      client_secret: process.env.INSTAGRAM_APP_SECRET!,
-      access_token: shortToken,
+    // Step 2: exchange for long-lived (60 days). Meta requires POST here now.
+    const longRes = await fetch(LONG_LIVED_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "ig_exchange_token",
+        client_secret: process.env.INSTAGRAM_APP_SECRET!,
+        access_token: shortToken,
+      }),
     });
-    const longRes = await fetch(`${LONG_LIVED_URL}?${longParams.toString()}`);
     if (!longRes.ok) {
       throw new Error(`Instagram long-lived exchange failed: ${await longRes.text()}`);
     }
@@ -73,11 +76,14 @@ export const instagramAdapter: PlatformAdapter = {
   },
 
   async refresh(refreshToken) {
-    const params = new URLSearchParams({
-      grant_type: "ig_refresh_token",
-      access_token: refreshToken,
+    const res = await fetch(REFRESH_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "ig_refresh_token",
+        access_token: refreshToken,
+      }),
     });
-    const res = await fetch(`${REFRESH_URL}?${params.toString()}`);
     if (!res.ok) throw new Error(`Instagram refresh failed: ${await res.text()}`);
     const j = await res.json();
     return {
