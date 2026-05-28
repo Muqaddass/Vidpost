@@ -70,12 +70,17 @@ export const youtubeAdapter: PlatformAdapter = {
     };
   },
 
-  async publish({ accessToken, input }) {
+  async publish({ accessToken, refreshToken, input }) {
     if (input.mediaType !== "video") {
       throw new Error("YouTube only accepts video uploads");
     }
     const client = oauthClient();
-    client.setCredentials({ access_token: accessToken });
+    // Pass both tokens so googleapis can auto-refresh when access_token is expired
+    // (Google access tokens last 1 hour; refresh tokens are long-lived).
+    client.setCredentials({
+      access_token: accessToken,
+      refresh_token: refreshToken ?? undefined,
+    });
     const yt = google.youtube({ version: "v3", auth: client });
 
     // Stream the video from R2 directly through to YouTube

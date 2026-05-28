@@ -84,9 +84,11 @@ export async function POST(req: NextRequest) {
 
     try {
       const accessToken = decrypt(acct.access_token);
+      const refreshToken = acct.refresh_token ? decrypt(acct.refresh_token) : null;
       const adapter = getAdapter(platform);
       const r = await adapter.publish({
         accessToken,
+        refreshToken,
         platformUserId: acct.platform_user_id,
         input: {
           mediaUrl: body.mediaUrl,

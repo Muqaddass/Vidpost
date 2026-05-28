@@ -8,8 +8,12 @@ const TOKEN_URL = "https://open.tiktokapis.com/v2/oauth/token/";
 // user.info.profile scope and triggers "scope_not_authorized" if requested.
 const USER_INFO_URL =
   "https://open.tiktokapis.com/v2/user/info/?fields=open_id,union_id,avatar_url,display_name";
+// Use the "Upload Content" / inbox endpoint instead of direct publish.
+// Unaudited apps can't direct-post to public accounts ("unaudited_client_can_only_post_to_private_accounts").
+// Inbox uploads land in the user's TikTok Drafts — they tap publish inside the app.
+// Once we get audited by TikTok, switch back to /v2/post/publish/video/init/ for true automation.
 const PUBLISH_VIDEO_URL =
-  "https://open.tiktokapis.com/v2/post/publish/video/init/";
+  "https://open.tiktokapis.com/v2/post/publish/inbox/video/init/";
 
 const SCOPES = ["user.info.basic", "video.upload", "video.publish"].join(",");
 
@@ -90,6 +94,8 @@ export const tiktokAdapter: PlatformAdapter = {
     if (input.mediaType !== "video") {
       throw new Error("TikTok only accepts video uploads");
     }
+    // Inbox upload: no post_info needed — caption/privacy are set by the user
+    // when they open the draft in the TikTok app.
     const res = await fetch(PUBLISH_VIDEO_URL, {
       method: "POST",
       headers: {
@@ -97,13 +103,6 @@ export const tiktokAdapter: PlatformAdapter = {
         "Content-Type": "application/json; charset=UTF-8",
       },
       body: JSON.stringify({
-        post_info: {
-          title: input.caption.slice(0, 2200),
-          privacy_level: "SELF_ONLY", // creators upgrade in TikTok app; safe default
-          disable_duet: false,
-          disable_comment: false,
-          disable_stitch: false,
-        },
         source_info: {
           source: "PULL_FROM_URL",
           video_url: input.mediaUrl,

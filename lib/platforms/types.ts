@@ -32,5 +32,11 @@ export interface PlatformAdapter {
   exchangeCode(code: string): Promise<OAuthTokens>;
   fetchProfile(accessToken: string): Promise<PlatformProfile>;
   refresh?(refreshToken: string): Promise<OAuthTokens>;
-  publish(args: { accessToken: string; platformUserId: string; input: PublishInput }): Promise<PublishResult>;
+  publish(args: {
+    accessToken: string;
+    /** Optional refresh token — used by YouTube (Google) to auto-renew expired access tokens. */
+    refreshToken?: string | null;
+    platformUserId: string;
+    input: PublishInput;
+  }): Promise<PublishResult>;
 }
