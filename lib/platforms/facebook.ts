@@ -25,7 +25,7 @@ export const facebookAdapter: PlatformAdapter = {
   id: "facebook",
 
   buildAuthUrl(state) {
-    const appId = process.env.FACEBOOK_APP_ID;
+    const appId = process.env.FACEBOOK_APP_ID?.trim();
     if (!appId) throw new Error("FACEBOOK_APP_ID not set");
     const params = new URLSearchParams({
       client_id: appId,
@@ -40,8 +40,8 @@ export const facebookAdapter: PlatformAdapter = {
   async exchangeCode(code) {
     // Step 1: short-lived user token
     const shortParams = new URLSearchParams({
-      client_id: process.env.FACEBOOK_APP_ID!,
-      client_secret: process.env.FACEBOOK_APP_SECRET!,
+      client_id: process.env.FACEBOOK_APP_ID!.trim(),
+      client_secret: process.env.FACEBOOK_APP_SECRET!.trim(),
       redirect_uri: getCallbackUrl("facebook"),
       code,
     });
@@ -53,8 +53,8 @@ export const facebookAdapter: PlatformAdapter = {
     // Step 2: exchange for long-lived user token (~60 days)
     const longParams = new URLSearchParams({
       grant_type: "fb_exchange_token",
-      client_id: process.env.FACEBOOK_APP_ID!,
-      client_secret: process.env.FACEBOOK_APP_SECRET!,
+      client_id: process.env.FACEBOOK_APP_ID!.trim(),
+      client_secret: process.env.FACEBOOK_APP_SECRET!.trim(),
       fb_exchange_token: shortToken,
     });
     const longRes = await fetch(`${TOKEN_URL}?${longParams.toString()}`);
