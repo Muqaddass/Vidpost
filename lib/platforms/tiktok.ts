@@ -10,10 +10,11 @@ const USER_INFO_URL =
   "https://open.tiktokapis.com/v2/user/info/?fields=open_id,union_id,avatar_url,display_name";
 // Use the "Upload Content" / inbox endpoint instead of direct publish.
 // Unaudited apps can't direct-post to public accounts ("unaudited_client_can_only_post_to_private_accounts").
-// Inbox uploads land in the user's TikTok Drafts — they tap publish inside the app.
+// Inbox uploads land in the user's TikTok Inbox notifications — they tap publish inside the app.
 // Once we get audited by TikTok, switch back to /v2/post/publish/video/init/ for true automation.
 const PUBLISH_VIDEO_URL =
   "https://open.tiktokapis.com/v2/post/publish/inbox/video/init/";
+const STATUS_URL = "https://open.tiktokapis.com/v2/post/publish/status/fetch/";
 
 const SCOPES = ["user.info.basic", "video.upload", "video.publish"].join(",");
 
@@ -96,7 +97,7 @@ export const tiktokAdapter: PlatformAdapter = {
     }
     // Inbox upload: no post_info needed — caption/privacy are set by the user
     // when they open the draft in the TikTok app.
-    const res = await fetch(PUBLISH_VIDEO_URL, {
+    const initRes = await fetch(PUBLISH_VIDEO_URL, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -109,13 +110,40 @@ export const tiktokAdapter: PlatformAdapter = {
         },
       }),
     });
-    const j = await res.json();
-    if (!res.ok || j.error?.code !== "ok") {
-      throw new Error(`TikTok publish failed: ${JSON.stringify(j)}`);
+    const initJson = await initRes.json();
+    if (!initRes.ok || initJson.error?.code !== "ok") {
+      throw new Error(`TikTok publish init failed: ${JSON.stringify(initJson)}`);
     }
-    return {
-      platformPostId: j.data?.publish_id ?? "pending",
-      platformPostUrl: null,
-    };
+    const publishId: string = initJson.data?.publish_id;
+    if (!publishId) {
+      throw new Error(`TikTok did not return a publish_id: ${JSON.stringify(initJson)}`);
+    }
+
+    // Poll status until TikTok either delivers to inbox or fails.
+    // Without this, we'd report "success" even when TikTok's async processing
+    // silently rejects the video (e.g. unreachable URL, bad codec).
+    for (let i = 0; i < 20; i++) {
+      await new Promise((r) => setTimeout(r, 3000));
+      const statusRes = await fetch(STATUS_URL, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json; charset=UTF-8",
+        },
+        body: JSON.stringify({ publish_id: publishId }),
+      });
+      const statusJson = await statusRes.json();
+      const status = statusJson.data?.status as string | undefined;
+      if (status === "SEND_TO_USER_INBOX" || status === "PUBLISH_COMPLETE") {
+        return { platformPostId: publishId, platformPostUrl: null };
+      }
+      if (status === "FAILED") {
+        const reason = statusJson.data?.fail_reason ?? "unknown";
+        throw new Error(`TikTok processing failed: ${reason}`);
+      }
+      // Otherwise keep polling (PROCESSING_DOWNLOAD, PROCESSING_UPLOAD, etc.)
+    }
+    // Timed out — return success but warn; status may resolve later.
+    return { platformPostId: publishId, platformPostUrl: null };
   },
 };
