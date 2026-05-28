@@ -1,3 +1,4 @@
+import { Readable } from "node:stream";
 import { google } from "googleapis";
 import type { PlatformAdapter } from "./types";
 import { getCallbackUrl } from "./config";
@@ -83,6 +84,12 @@ export const youtubeAdapter: PlatformAdapter = {
       throw new Error(`Failed to fetch media from R2: ${upstream.status}`);
     }
 
+    // googleapis expects a Node Readable, but fetch() returns a Web ReadableStream.
+    // Readable.fromWeb() bridges the two.
+    const nodeStream = Readable.fromWeb(
+      upstream.body as unknown as import("node:stream/web").ReadableStream,
+    );
+
     const res = await yt.videos.insert({
       part: ["snippet", "status"],
       requestBody: {
@@ -94,7 +101,7 @@ export const youtubeAdapter: PlatformAdapter = {
       },
       media: {
         mimeType: upstream.headers.get("content-type") ?? "video/mp4",
-        body: upstream.body as unknown as NodeJS.ReadableStream,
+        body: nodeStream,
       },
     });
 
