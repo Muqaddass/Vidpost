@@ -70,5 +70,11 @@ export function getAppUrl(): string {
 }
 
 export function getCallbackUrl(platform: Platform): string {
+  // Per-platform override — useful when a platform's URL change requires lengthy
+  // review (e.g. TikTok's Create Revision flow takes 1-2 days). Set
+  // <PLATFORM>_REDIRECT_URI env var to keep using an old callback URL while
+  // the rest of the app moves to a new domain.
+  const override = process.env[`${platform.toUpperCase()}_REDIRECT_URI`];
+  if (override) return override;
   return `${getAppUrl()}/api/auth/${platform}/callback`;
 }
