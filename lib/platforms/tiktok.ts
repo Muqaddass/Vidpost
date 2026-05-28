@@ -120,9 +120,9 @@ export const tiktokAdapter: PlatformAdapter = {
     }
 
     // Poll status until TikTok either delivers to inbox or fails.
-    // Without this, we'd report "success" even when TikTok's async processing
-    // silently rejects the video (e.g. unreachable URL, bad codec).
-    for (let i = 0; i < 20; i++) {
+    let lastStatus: string | undefined;
+    let lastJson: unknown;
+    for (let i = 0; i < 30; i++) {
       await new Promise((r) => setTimeout(r, 3000));
       const statusRes = await fetch(STATUS_URL, {
         method: "POST",
@@ -133,17 +133,25 @@ export const tiktokAdapter: PlatformAdapter = {
         body: JSON.stringify({ publish_id: publishId }),
       });
       const statusJson = await statusRes.json();
-      const status = statusJson.data?.status as string | undefined;
-      if (status === "SEND_TO_USER_INBOX" || status === "PUBLISH_COMPLETE") {
+      lastJson = statusJson;
+      lastStatus = statusJson.data?.status as string | undefined;
+      console.log(`[tiktok:${publishId}] poll #${i + 1} status=${lastStatus}`, statusJson);
+
+      if (
+        lastStatus === "SEND_TO_USER_INBOX" ||
+        lastStatus === "PUBLISH_COMPLETE"
+      ) {
         return { platformPostId: publishId, platformPostUrl: null };
       }
-      if (status === "FAILED") {
+      if (lastStatus === "FAILED") {
         const reason = statusJson.data?.fail_reason ?? "unknown";
         throw new Error(`TikTok processing failed: ${reason}`);
       }
       // Otherwise keep polling (PROCESSING_DOWNLOAD, PROCESSING_UPLOAD, etc.)
     }
-    // Timed out — return success but warn; status may resolve later.
-    return { platformPostId: publishId, platformPostUrl: null };
+    // Timed out without a final state — report it as a failure so the user knows.
+    throw new Error(
+      `TikTok timed out at status=${lastStatus}; last response: ${JSON.stringify(lastJson)}`,
+    );
   },
 };
