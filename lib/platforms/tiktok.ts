@@ -4,8 +4,10 @@ import { getCallbackUrl } from "./config";
 // TikTok Content Posting API (v2). https://developers.tiktok.com/doc/content-posting-api-get-started
 const AUTH_BASE = "https://www.tiktok.com/v2/auth/authorize/";
 const TOKEN_URL = "https://open.tiktokapis.com/v2/oauth/token/";
+// Only fields that user.info.basic scope grants. `username` would require
+// user.info.profile scope and triggers "scope_not_authorized" if requested.
 const USER_INFO_URL =
-  "https://open.tiktokapis.com/v2/user/info/?fields=open_id,union_id,avatar_url,display_name,username";
+  "https://open.tiktokapis.com/v2/user/info/?fields=open_id,union_id,avatar_url,display_name";
 const PUBLISH_VIDEO_URL =
   "https://open.tiktokapis.com/v2/post/publish/video/init/";
 
@@ -79,7 +81,7 @@ export const tiktokAdapter: PlatformAdapter = {
     const u = j.data?.user ?? {};
     return {
       id: u.open_id ?? u.union_id ?? "unknown",
-      username: u.username ?? u.display_name ?? null,
+      username: u.display_name ?? null,
       avatar: u.avatar_url ?? null,
     };
   },
