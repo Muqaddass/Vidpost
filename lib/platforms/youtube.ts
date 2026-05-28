@@ -75,12 +75,26 @@ export const youtubeAdapter: PlatformAdapter = {
       throw new Error("YouTube only accepts video uploads");
     }
     const client = oauthClient();
-    // Pass both tokens so googleapis can auto-refresh when access_token is expired
-    // (Google access tokens last 1 hour; refresh tokens are long-lived).
     client.setCredentials({
       access_token: accessToken,
       refresh_token: refreshToken ?? undefined,
     });
+
+    // Force refresh BEFORE the resumable upload. googleapis auto-refresh doesn't
+    // reliably trigger for media uploads (different code path from JSON requests).
+    // Without this, expired access tokens cause "invalid authentication credentials".
+    if (refreshToken) {
+      try {
+        const { credentials } = await client.refreshAccessToken();
+        client.setCredentials(credentials);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        throw new Error(
+          `YouTube token refresh failed (reconnect required): ${msg}`,
+        );
+      }
+    }
+
     const yt = google.youtube({ version: "v3", auth: client });
 
     // Stream the video from R2 directly through to YouTube
