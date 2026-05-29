@@ -8,7 +8,7 @@ const TOKEN_URL = "https://api.instagram.com/oauth/access_token";
 const LONG_LIVED_URL = "https://graph.instagram.com/access_token";
 const REFRESH_URL = "https://graph.instagram.com/refresh_access_token";
 const ME_URL =
-  "https://graph.instagram.com/me?fields=id,username,account_type,profile_picture_url";
+  "https://graph.instagram.com/v22.0/me?fields=id,username,account_type,profile_picture_url";
 // Meta renamed these — newer names use the "business" prefix.
 // We only need basic profile + publishing; skip messages/comments/insights.
 const SCOPES = [
@@ -124,9 +124,11 @@ export const instagramAdapter: PlatformAdapter = {
   },
 
   async fetchProfile(accessToken) {
-    const url = new URL(ME_URL);
-    url.searchParams.set("access_token", accessToken);
-    const res = await fetch(url.toString());
+    // Use Bearer auth header (newer Meta API requires this; access_token query
+    // param returns "Unsupported request - method type: get" on the new endpoints).
+    const res = await fetch(ME_URL, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
     if (!res.ok) throw new Error(`Instagram profile failed: ${await res.text()}`);
     const j = await res.json();
     return {
