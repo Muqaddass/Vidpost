@@ -48,8 +48,8 @@ export async function startOAuth(platform: Platform, req?: NextRequest) {
         const overrideOrigin = new URL(override).origin;
         const currentOrigin = getAppUrl();
         if (overrideOrigin !== currentOrigin) {
-          const sig = signUserIdForBounce(userId);
-          const params = new URLSearchParams({ _uid: userId, _sig: sig });
+          const sig = signUserIdForBounce(user.id);
+          const params = new URLSearchParams({ _uid: user.id, _sig: sig });
           return NextResponse.redirect(
             `${overrideOrigin}/api/auth/${platform}?${params.toString()}`,
           );
@@ -60,7 +60,9 @@ export async function startOAuth(platform: Platform, req?: NextRequest) {
     }
   }
 
-  const state = await setOAuthState(platform, userId);
+  // userId is non-null here: either set from the bounce params at the top,
+  // or set from the Supabase session above (we return early if no user).
+  const state = await setOAuthState(platform, userId!);
   const url = getAdapter(platform).buildAuthUrl(state);
   return NextResponse.redirect(url);
 }
