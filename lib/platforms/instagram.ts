@@ -53,24 +53,54 @@ export const instagramAdapter: PlatformAdapter = {
     const shortJson = await shortRes.json();
     const shortToken: string = shortJson.access_token;
 
-    // Step 2: exchange for long-lived (60 days). Meta requires POST here now.
-    const longRes = await fetch(LONG_LIVED_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        grant_type: "ig_exchange_token",
-        client_secret: process.env.INSTAGRAM_APP_SECRET!,
-        access_token: shortToken,
-      }),
+    // Step 2: try to exchange for a long-lived token (60 days). Meta's endpoint has flipped
+    // between GET and POST + permission behavior over time. Try both; if both fail, fall back
+    // to the short-lived token (publishing still works for ~1 hour and user can reconnect).
+    const longParams = new URLSearchParams({
+      grant_type: "ig_exchange_token",
+      client_secret: process.env.INSTAGRAM_APP_SECRET!,
+      access_token: shortToken,
     });
-    if (!longRes.ok) {
-      throw new Error(`Instagram long-lived exchange failed: ${await longRes.text()}`);
+
+    let longJson: { access_token?: string; expires_in?: number } | null = null;
+
+    // Try GET first (matches Meta's current documentation)
+    try {
+      const r = await fetch(`${LONG_LIVED_URL}?${longParams.toString()}`);
+      if (r.ok) longJson = await r.json();
+    } catch {
+      // ignore
     }
-    const longJson = await longRes.json();
+
+    // If GET didn't work, try POST
+    if (!longJson?.access_token) {
+      try {
+        const r = await fetch(LONG_LIVED_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: longParams,
+        });
+        if (r.ok) longJson = await r.json();
+      } catch {
+        // ignore
+      }
+    }
+
+    if (longJson?.access_token) {
+      return {
+        access_token: longJson.access_token,
+        refresh_token: longJson.access_token, // IG uses the access token itself to refresh
+        expires_in: longJson.expires_in,
+        scope: SCOPES,
+      };
+    }
+
+    // Fallback: use the short-lived token. Works for ~1 hour; user reconnects after.
+    console.warn("Instagram long-lived exchange failed; using short-lived token (1h validity)");
     return {
-      access_token: longJson.access_token,
-      refresh_token: longJson.access_token, // IG uses the access token itself to refresh
-      expires_in: longJson.expires_in,
+      access_token: shortToken,
+      refresh_token: shortToken,
+      expires_in: 3600,
       scope: SCOPES,
     };
   },

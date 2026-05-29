@@ -40,44 +40,52 @@ export function UploadArea({ value, onChange }: Props) {
         return;
       }
       setUploading(true);
-      setProgress(5);
+      setProgress(2);
 
       try {
-        const form = new FormData();
-        form.append("file", file);
+        // Step 1: ask the server for a presigned PUT URL (small JSON request, no payload limit).
+        const meta = await fetch("/api/post/upload", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            fileName: file.name,
+            contentType: file.type || "application/octet-stream",
+            size: file.size,
+          }),
+        });
+        if (!meta.ok) {
+          const j = await meta.json().catch(() => ({}));
+          throw new Error(j.error || `Could not get upload URL (${meta.status})`);
+        }
+        const { uploadUrl, publicUrl, key, mediaType } = await meta.json();
+        setProgress(5);
 
+        // Step 2: PUT the file bytes directly to R2 — bypasses Vercel's 4.5 MB function limit.
         const xhr = new XMLHttpRequest();
-        xhr.open("POST", "/api/post/upload");
+        xhr.open("PUT", uploadUrl);
+        xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
         xhr.upload.onprogress = (e) => {
           if (e.lengthComputable) {
-            setProgress(Math.round((e.loaded / e.total) * 95));
+            setProgress(5 + Math.round((e.loaded / e.total) * 90));
           }
         };
-        const result = await new Promise<UploadedMedia>((resolve, reject) => {
+        await new Promise<void>((resolve, reject) => {
           xhr.onload = () => {
-            if (xhr.status >= 200 && xhr.status < 300) {
-              try {
-                const j = JSON.parse(xhr.responseText);
-                resolve({
-                  url: j.url,
-                  key: j.key,
-                  mediaType: j.mediaType,
-                  fileName: file.name,
-                  size: file.size,
-                });
-              } catch (e) {
-                reject(e);
-              }
-            } else {
-              reject(new Error(xhr.responseText || `Upload failed (${xhr.status})`));
-            }
+            if (xhr.status >= 200 && xhr.status < 300) resolve();
+            else reject(new Error(`R2 upload failed (${xhr.status}): ${xhr.responseText}`));
           };
-          xhr.onerror = () => reject(new Error("Network error"));
-          xhr.send(form);
+          xhr.onerror = () => reject(new Error("Network error during R2 upload"));
+          xhr.send(file);
         });
 
         setProgress(100);
-        onChange(result);
+        onChange({
+          url: publicUrl,
+          key,
+          mediaType,
+          fileName: file.name,
+          size: file.size,
+        });
         toast.success("Upload complete");
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "Upload failed");

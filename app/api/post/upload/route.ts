@@ -1,14 +1,16 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { randomBytes } from "node:crypto";
+import { z } from "zod";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { uploadToR2 } from "@/lib/r2";
+import { getR2PresignedPutUrl } from "@/lib/r2";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-// Allow up to 500 MB uploads (per spec); raise on Vercel via deployment config if needed.
-export const maxDuration = 60;
 
-const MAX_BYTES = 500 * 1024 * 1024;
+// Returns a presigned PUT URL the browser uploads to directly.
+// Avoids Vercel Hobby's 4.5 MB serverless payload limit.
+
+const MAX_BYTES = 500 * 1024 * 1024; // 500 MB
 
 const ALLOWED = new Set([
   "video/mp4",
@@ -18,39 +20,46 @@ const ALLOWED = new Set([
   "image/png",
 ]);
 
+const schema = z.object({
+  fileName: z.string().min(1).max(255),
+  contentType: z.string().min(1),
+  size: z.number().int().nonnegative(),
+});
+
 export async function POST(req: NextRequest) {
   const supabase = await createSupabaseServerClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
-  const form = await req.formData();
-  const file = form.get("file");
-  if (!(file instanceof File)) {
-    return NextResponse.json({ error: "no_file" }, { status: 400 });
+  let body;
+  try {
+    body = schema.parse(await req.json());
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "invalid_body";
+    return NextResponse.json({ error: msg }, { status: 400 });
   }
-  if (file.size > MAX_BYTES) {
-    return NextResponse.json({ error: "file_too_large" }, { status: 413 });
+
+  if (body.size > MAX_BYTES) {
+    return NextResponse.json({ error: "file_too_large", limit: MAX_BYTES }, { status: 413 });
   }
-  if (file.type && !ALLOWED.has(file.type)) {
+  if (!ALLOWED.has(body.contentType)) {
     return NextResponse.json(
-      { error: "unsupported_type", type: file.type },
+      { error: "unsupported_type", type: body.contentType },
       { status: 415 },
     );
   }
 
-  const ext = file.name.includes(".") ? file.name.split(".").pop() : "bin";
+  const ext = body.fileName.includes(".") ? body.fileName.split(".").pop() : "bin";
   const key = `${user.id}/${Date.now()}-${randomBytes(6).toString("hex")}.${ext}`;
-  const buf = Buffer.from(await file.arrayBuffer());
 
-  const { publicUrl } = await uploadToR2({
+  const { uploadUrl, publicUrl } = await getR2PresignedPutUrl({
     key,
-    body: buf,
-    contentType: file.type || "application/octet-stream",
+    contentType: body.contentType,
   });
 
-  const mediaType: "video" | "image" = file.type.startsWith("video/")
+  const mediaType: "video" | "image" = body.contentType.startsWith("video/")
     ? "video"
     : "image";
 
-  return NextResponse.json({ url: publicUrl, key, mediaType, size: file.size });
+  return NextResponse.json({ uploadUrl, publicUrl, key, mediaType });
 }
