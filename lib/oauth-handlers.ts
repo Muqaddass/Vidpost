@@ -13,6 +13,27 @@ export async function startOAuth(platform: Platform) {
   if (!user) {
     return NextResponse.redirect(`${getAppUrl()}/login?next=/dashboard/connect`);
   }
+
+  // If a per-platform redirect URI override points to a different origin than
+  // the current request (e.g. TIKTOK_REDIRECT_URI=https://vidpost-gamma.vercel.app/...
+  // while NEXT_PUBLIC_APP_URL=https://app.attavibe.com), the state cookie must be
+  // set on the SAME origin the callback will land on. Otherwise the cookie isn't
+  // visible at callback time → "invalid_state". Bounce to the override origin's
+  // /api/auth/<platform> route so it sets the cookie there before redirecting to
+  // the OAuth provider.
+  const override = process.env[`${platform.toUpperCase()}_REDIRECT_URI`];
+  if (override) {
+    try {
+      const overrideOrigin = new URL(override).origin;
+      const currentOrigin = getAppUrl();
+      if (overrideOrigin !== currentOrigin) {
+        return NextResponse.redirect(`${overrideOrigin}/api/auth/${platform}`);
+      }
+    } catch {
+      // Malformed override URL — fall through to normal flow and let buildAuthUrl deal with it.
+    }
+  }
+
   const state = await setOAuthState(platform);
   const url = getAdapter(platform).buildAuthUrl(state);
   return NextResponse.redirect(url);
