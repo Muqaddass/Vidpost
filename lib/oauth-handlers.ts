@@ -1,40 +1,66 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getAdapter } from "@/lib/platforms";
-import { setOAuthState, verifyOAuthState } from "@/lib/oauth-state";
+import {
+  setOAuthState,
+  verifyOAuthState,
+  signUserIdForBounce,
+  verifyBounceUserId,
+} from "@/lib/oauth-state";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { encrypt } from "@/lib/encrypt";
 import { getAppUrl } from "@/lib/platforms/config";
 import type { Platform } from "@/lib/types/database";
 
-export async function startOAuth(platform: Platform) {
-  const supabase = await createSupabaseServerClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) {
-    return NextResponse.redirect(`${getAppUrl()}/login?next=/dashboard/connect`);
-  }
-
-  // If a per-platform redirect URI override points to a different origin than
-  // the current request (e.g. TIKTOK_REDIRECT_URI=https://vidpost-gamma.vercel.app/...
-  // while NEXT_PUBLIC_APP_URL=https://app.attavibe.com), the state cookie must be
-  // set on the SAME origin the callback will land on. Otherwise the cookie isn't
-  // visible at callback time → "invalid_state". Bounce to the override origin's
-  // /api/auth/<platform> route so it sets the cookie there before redirecting to
-  // the OAuth provider.
-  const override = process.env[`${platform.toUpperCase()}_REDIRECT_URI`];
-  if (override) {
-    try {
-      const overrideOrigin = new URL(override).origin;
-      const currentOrigin = getAppUrl();
-      if (overrideOrigin !== currentOrigin) {
-        return NextResponse.redirect(`${overrideOrigin}/api/auth/${platform}`);
+export async function startOAuth(platform: Platform, req?: NextRequest) {
+  // Cross-domain bounce: when the override origin differs from the current app origin,
+  // we get bounced here with ?_uid=<userId>&_sig=<sig> instead of a Supabase session
+  // cookie (cookies are domain-scoped). Verify the signed user_id and use it.
+  let userId: string | null = null;
+  if (req) {
+    const url = new URL(req.url);
+    const uidParam = url.searchParams.get("_uid");
+    const sigParam = url.searchParams.get("_sig");
+    if (uidParam && sigParam) {
+      userId = verifyBounceUserId(uidParam, sigParam);
+      if (!userId) {
+        return NextResponse.redirect(
+          `${getAppUrl()}/dashboard/connect?error=invalid_bounce`,
+        );
       }
-    } catch {
-      // Malformed override URL — fall through to normal flow and let buildAuthUrl deal with it.
     }
   }
 
-  const state = await setOAuthState(platform);
+  // Fallback: get user from Supabase session (normal same-origin flow).
+  if (!userId) {
+    const supabase = await createSupabaseServerClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      return NextResponse.redirect(`${getAppUrl()}/login?next=/dashboard/connect`);
+    }
+    userId = user.id;
+
+    // If override targets a different origin, bounce there with signed user_id
+    // so the state cookie ends up on the same origin as the eventual callback.
+    const override = process.env[`${platform.toUpperCase()}_REDIRECT_URI`];
+    if (override) {
+      try {
+        const overrideOrigin = new URL(override).origin;
+        const currentOrigin = getAppUrl();
+        if (overrideOrigin !== currentOrigin) {
+          const sig = signUserIdForBounce(userId);
+          const params = new URLSearchParams({ _uid: userId, _sig: sig });
+          return NextResponse.redirect(
+            `${overrideOrigin}/api/auth/${platform}?${params.toString()}`,
+          );
+        }
+      } catch {
+        // Malformed override URL — fall through to normal flow.
+      }
+    }
+  }
+
+  const state = await setOAuthState(platform, userId);
   const url = getAdapter(platform).buildAuthUrl(state);
   return NextResponse.redirect(url);
 }
@@ -56,16 +82,11 @@ export async function handleOAuthCallback(platform: Platform, req: NextRequest) 
     return NextResponse.redirect(`${connectPage}?error=missing_code`);
   }
 
-  const stateOk = await verifyOAuthState(platform, state);
-  if (!stateOk) {
+  const verification = await verifyOAuthState(platform, state);
+  if (!verification.ok || !verification.userId) {
     return NextResponse.redirect(`${connectPage}?error=invalid_state`);
   }
-
-  const supabase = await createSupabaseServerClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) {
-    return NextResponse.redirect(`${getAppUrl()}/login`);
-  }
+  const userId = verification.userId;
 
   try {
     const adapter = getAdapter(platform);
@@ -81,7 +102,7 @@ export async function handleOAuthCallback(platform: Platform, req: NextRequest) 
       .from("connected_accounts")
       .upsert(
         {
-          user_id: user.id,
+          user_id: userId,
           platform,
           platform_user_id: profile.id,
           platform_username: profile.username,
