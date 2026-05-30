@@ -8,12 +8,14 @@ const TOKEN_URL = "https://open.tiktokapis.com/v2/oauth/token/";
 // user.info.profile scope and triggers "scope_not_authorized" if requested.
 const USER_INFO_URL =
   "https://open.tiktokapis.com/v2/user/info/?fields=open_id,union_id,avatar_url,display_name";
-// Use the "Upload Content" / inbox endpoint instead of direct publish.
+// Use the "Upload Content" / inbox endpoints instead of direct publish.
 // Unaudited apps can't direct-post to public accounts ("unaudited_client_can_only_post_to_private_accounts").
 // Inbox uploads land in the user's TikTok Inbox notifications — they tap publish inside the app.
-// Once we get audited by TikTok, switch back to /v2/post/publish/video/init/ for true automation.
+// Once we get audited by TikTok, switch back to /v2/post/publish/{video,content}/init/ for true automation.
 const PUBLISH_VIDEO_URL =
   "https://open.tiktokapis.com/v2/post/publish/inbox/video/init/";
+const PUBLISH_PHOTO_URL =
+  "https://open.tiktokapis.com/v2/post/publish/content/init/";
 const STATUS_URL = "https://open.tiktokapis.com/v2/post/publish/status/fetch/";
 
 const SCOPES = ["user.info.basic", "video.upload", "video.publish"].join(",");
@@ -92,8 +94,45 @@ export const tiktokAdapter: PlatformAdapter = {
   },
 
   async publish({ accessToken, input }) {
+    // Image path: TikTok photo carousel via Direct Post endpoint.
+    // NOTE: unaudited apps may hit 'unaudited_client_can_only_post_to_private_accounts'
+    // because TikTok has no inbox/draft equivalent for photos. Works after TikTok audit.
+    if (input.mediaType === "image") {
+      const photoRes = await fetch(PUBLISH_PHOTO_URL, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json; charset=UTF-8",
+        },
+        body: JSON.stringify({
+          post_info: {
+            title: (input.title || "").slice(0, 90),
+            description: (input.caption || "").slice(0, 2200),
+            disable_comment: false,
+            privacy_level: "SELF_ONLY", // safest for unaudited apps
+            auto_add_music: true,
+          },
+          source_info: {
+            source: "PULL_FROM_URL",
+            photo_cover_index: 0,
+            photo_images: [input.mediaUrl],
+          },
+          post_mode: "DIRECT_POST",
+          media_type: "PHOTO",
+        }),
+      });
+      const photoJson = await photoRes.json();
+      if (!photoRes.ok || photoJson.error?.code !== "ok") {
+        throw new Error(`TikTok photo publish failed: ${JSON.stringify(photoJson)}`);
+      }
+      return {
+        platformPostId: photoJson.data?.publish_id ?? "pending",
+        platformPostUrl: null,
+      };
+    }
+
     if (input.mediaType !== "video") {
-      throw new Error("TikTok only accepts video uploads");
+      throw new Error("TikTok accepts video or image only");
     }
     // Inbox upload: no post_info needed — caption/privacy are set by the user
     // when they open the draft in the TikTok app.

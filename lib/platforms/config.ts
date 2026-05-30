@@ -16,7 +16,7 @@ export const PLATFORMS: Record<Platform, PlatformMeta> = {
     brandColor: "#FE2C55",
     blurb: "Short-form video for the For You feed.",
     acceptsVideo: true,
-    acceptsImage: false,
+    acceptsImage: true,
   },
   instagram: {
     id: "instagram",
