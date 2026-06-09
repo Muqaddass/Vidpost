@@ -95,41 +95,71 @@ export const instagramAdapter: PlatformAdapter = {
       console.warn("Instagram long-lived exchange failed; using short-lived token (1h validity)");
     }
 
-    // Use the user_id returned in the short-lived token response (Meta includes it)
-    // to pre-fetch the profile via the direct /<user_id> endpoint. This avoids the
-    // /me endpoint, which Meta returns 'Unsupported request - method type' on for
-    // many users in development mode.
+    // Pre-fetch the profile so OAuth handler doesn't need a separate /me call.
+    // Meta is inconsistent — try every documented combination of endpoint + method
+    // + auth style, and log what fails so we can iterate.
     const userId = String(shortJson.user_id ?? "");
+    console.log(`[instagram:exchange] user_id=${userId || "(missing)"}`);
     let profile: { id: string; username: string | null; avatar: string | null } | undefined;
-    if (userId) {
-      const candidates: Array<() => Promise<Response>> = [
-        () => fetch(
-          `https://graph.instagram.com/v22.0/${userId}?fields=username,profile_picture_url&access_token=${encodeURIComponent(finalToken)}`,
-        ),
-        () => fetch(`https://graph.instagram.com/v22.0/${userId}?fields=username,profile_picture_url`, {
-          headers: { Authorization: `Bearer ${finalToken}` },
-        }),
-      ];
-      for (const attempt of candidates) {
-        try {
-          const r = await attempt();
-          if (r.ok) {
-            const j = await r.json();
-            profile = {
-              id: userId,
-              username: j.username ?? null,
-              avatar: j.profile_picture_url ?? null,
-            };
-            break;
-          }
-        } catch {
-          // try next
+
+    const profileFields = "id,username,account_type,profile_picture_url";
+    const candidates: Array<{ name: string; run: () => Promise<Response> }> = userId
+      ? [
+          {
+            name: `GET /v22.0/${userId} (query token)`,
+            run: () => fetch(
+              `https://graph.instagram.com/v22.0/${userId}?fields=${profileFields}&access_token=${encodeURIComponent(finalToken)}`,
+            ),
+          },
+          {
+            name: `GET /v22.0/${userId} (bearer)`,
+            run: () => fetch(`https://graph.instagram.com/v22.0/${userId}?fields=${profileFields}`, {
+              headers: { Authorization: `Bearer ${finalToken}` },
+            }),
+          },
+          {
+            name: "GET /v22.0/me (query token)",
+            run: () => fetch(
+              `https://graph.instagram.com/v22.0/me?fields=${profileFields}&access_token=${encodeURIComponent(finalToken)}`,
+            ),
+          },
+          {
+            name: "GET /v22.0/me (bearer)",
+            run: () => fetch(`https://graph.instagram.com/v22.0/me?fields=${profileFields}`, {
+              headers: { Authorization: `Bearer ${finalToken}` },
+            }),
+          },
+          {
+            name: "GET /me (no version, query token)",
+            run: () => fetch(
+              `https://graph.instagram.com/me?fields=${profileFields}&access_token=${encodeURIComponent(finalToken)}`,
+            ),
+          },
+        ]
+      : [];
+
+    for (const c of candidates) {
+      try {
+        const r = await c.run();
+        const text = await r.text();
+        if (r.ok) {
+          const j = JSON.parse(text);
+          console.log(`[instagram:exchange] profile attempt OK via "${c.name}":`, text);
+          profile = {
+            id: String(j.id ?? userId),
+            username: j.username ?? null,
+            avatar: j.profile_picture_url ?? null,
+          };
+          break;
         }
+        console.warn(`[instagram:exchange] profile attempt FAILED "${c.name}": ${text}`);
+      } catch (e) {
+        console.warn(`[instagram:exchange] profile attempt THREW "${c.name}":`, e);
       }
-      // If both /<user_id> attempts failed, still return at least the id —
-      // username can be filled later.
-      if (!profile) profile = { id: userId, username: null, avatar: null };
     }
+
+    // Last resort: return the id alone. UI shows "Connected" instead of username.
+    if (!profile && userId) profile = { id: userId, username: null, avatar: null };
 
     return {
       access_token: finalToken,
