@@ -53,8 +53,14 @@ export const instagramAdapter: PlatformAdapter = {
     if (!shortRes.ok) {
       throw new Error(`Instagram short-lived token failed: ${await shortRes.text()}`);
     }
-    const shortJson = await shortRes.json();
+    // Read as text first so we can preserve the user_id as a string before
+    // JSON.parse loses precision. Meta's user IDs are 17-digit numbers, larger
+    // than JS's max safe integer (2^53 - 1).
+    const shortRaw = await shortRes.text();
+    const shortJson = JSON.parse(shortRaw);
     const shortToken: string = shortJson.access_token;
+    const exactUserIdMatch = shortRaw.match(/"user_id"\s*:\s*"?(\d+)"?/);
+    const exactUserId = exactUserIdMatch?.[1];
 
     // Step 2: try to exchange for a long-lived token (60 days). Meta's endpoint has flipped
     // between GET and POST + permission behavior over time. Try both; if both fail, fall back
@@ -98,8 +104,11 @@ export const instagramAdapter: PlatformAdapter = {
     // Pre-fetch the profile so OAuth handler doesn't need a separate /me call.
     // Meta is inconsistent — try every documented combination of endpoint + method
     // + auth style, and log what fails so we can iterate.
-    const userId = String(shortJson.user_id ?? "");
-    console.log(`[instagram:exchange] user_id=${userId || "(missing)"}`);
+    // Prefer the regex-extracted raw value (preserves precision); fall back to JSON if needed.
+    const userId = exactUserId ?? String(shortJson.user_id ?? "");
+    console.log(
+      `[instagram:exchange] user_id=${userId || "(missing)"} (exact=${exactUserId ?? "no"})`,
+    );
     let profile: { id: string; username: string | null; avatar: string | null } | undefined;
 
     const profileFields = "id,username,account_type,profile_picture_url";
