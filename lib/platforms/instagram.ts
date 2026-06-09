@@ -7,8 +7,8 @@ const AUTH_BASE = "https://www.instagram.com/oauth/authorize";
 const TOKEN_URL = "https://api.instagram.com/oauth/access_token";
 const LONG_LIVED_URL = "https://graph.instagram.com/access_token";
 const REFRESH_URL = "https://graph.instagram.com/refresh_access_token";
-const ME_URL =
-  "https://graph.instagram.com/v22.0/me?fields=id,username,account_type,profile_picture_url";
+const ME_URL = "https://graph.instagram.com/v22.0/me";
+const ME_FIELDS = "id,username,account_type,profile_picture_url";
 // Meta renamed these — newer names use the "business" prefix.
 // We only need basic profile + publishing; skip messages/comments/insights.
 const SCOPES = [
@@ -124,18 +124,40 @@ export const instagramAdapter: PlatformAdapter = {
   },
 
   async fetchProfile(accessToken) {
-    // Use Bearer auth header (newer Meta API requires this; access_token query
-    // param returns "Unsupported request - method type: get" on the new endpoints).
-    const res = await fetch(ME_URL, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-    if (!res.ok) throw new Error(`Instagram profile failed: ${await res.text()}`);
-    const j = await res.json();
-    return {
-      id: String(j.id),
-      username: j.username ?? null,
-      avatar: j.profile_picture_url ?? null,
-    };
+    // Meta keeps flipping endpoint methods. Try in order:
+    //   1) GET with access_token query param (classic, still works on some endpoints)
+    //   2) GET with Bearer header (newer style some endpoints prefer)
+    //   3) POST with form body (what Meta returns "Unsupported request - method type: get" demands)
+    const candidates: Array<() => Promise<Response>> = [
+      () => fetch(`${ME_URL}?fields=${ME_FIELDS}&access_token=${encodeURIComponent(accessToken)}`),
+      () => fetch(`${ME_URL}?fields=${ME_FIELDS}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      }),
+      () => fetch(ME_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ fields: ME_FIELDS, access_token: accessToken }),
+      }),
+    ];
+
+    let lastErr = "";
+    for (const attempt of candidates) {
+      try {
+        const res = await attempt();
+        if (res.ok) {
+          const j = await res.json();
+          return {
+            id: String(j.id),
+            username: j.username ?? null,
+            avatar: j.profile_picture_url ?? null,
+          };
+        }
+        lastErr = await res.text();
+      } catch (e) {
+        lastErr = e instanceof Error ? e.message : String(e);
+      }
+    }
+    throw new Error(`Instagram profile failed (all methods): ${lastErr}`);
   },
 
   async publish({ accessToken, platformUserId, input }) {
