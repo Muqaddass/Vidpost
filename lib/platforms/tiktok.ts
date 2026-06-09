@@ -8,15 +8,16 @@ const TOKEN_URL = "https://open.tiktokapis.com/v2/oauth/token/";
 // user.info.profile scope and triggers "scope_not_authorized" if requested.
 const USER_INFO_URL =
   "https://open.tiktokapis.com/v2/user/info/?fields=open_id,union_id,avatar_url,display_name";
-// Use the "Upload Content" / inbox endpoints instead of direct publish.
-// Unaudited apps can't direct-post to public accounts ("unaudited_client_can_only_post_to_private_accounts").
-// Inbox uploads land in the user's TikTok Inbox notifications — they tap publish inside the app.
-// Once we get audited by TikTok, switch back to /v2/post/publish/{video,content}/init/ for true automation.
+// Direct Post (audited apps): video posts straight to user's TikTok profile.
+// No manual review step in the user's TikTok app — true one-click publish.
 const PUBLISH_VIDEO_URL =
-  "https://open.tiktokapis.com/v2/post/publish/inbox/video/init/";
+  "https://open.tiktokapis.com/v2/post/publish/video/init/";
 const PUBLISH_PHOTO_URL =
   "https://open.tiktokapis.com/v2/post/publish/content/init/";
 const STATUS_URL = "https://open.tiktokapis.com/v2/post/publish/status/fetch/";
+// Required before direct post: returns the privacy levels this creator is allowed to use.
+const CREATOR_INFO_URL =
+  "https://open.tiktokapis.com/v2/post/publish/creator_info/query/";
 
 const SCOPES = ["user.info.basic", "video.upload", "video.publish"].join(",");
 
@@ -94,10 +95,25 @@ export const tiktokAdapter: PlatformAdapter = {
   },
 
   async publish({ accessToken, input }) {
-    // Image path: TikTok photo carousel via Direct Post endpoint.
-    // NOTE: unaudited apps may hit 'unaudited_client_can_only_post_to_private_accounts'
-    // because TikTok has no inbox/draft equivalent for photos. Works after TikTok audit.
+    // Image path: TikTok photo carousel via Direct Post endpoint (audit approved).
     if (input.mediaType === "image") {
+      // Query creator_info for allowed privacy levels (same as video flow).
+      const creatorRes = await fetch(CREATOR_INFO_URL, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json; charset=UTF-8",
+        },
+      });
+      const creatorJson = await creatorRes.json();
+      const allowedPrivacy: string[] =
+        creatorJson.data?.privacy_level_options ?? ["SELF_ONLY"];
+      const privacyLevel =
+        allowedPrivacy.find((p) => p === "PUBLIC_TO_EVERYONE") ??
+        allowedPrivacy.find((p) => p === "MUTUAL_FOLLOW_FRIENDS") ??
+        allowedPrivacy[0] ??
+        "SELF_ONLY";
+
       const photoRes = await fetch(PUBLISH_PHOTO_URL, {
         method: "POST",
         headers: {
@@ -109,7 +125,7 @@ export const tiktokAdapter: PlatformAdapter = {
             title: (input.title || "").slice(0, 90),
             description: (input.caption || "").slice(0, 2200),
             disable_comment: false,
-            privacy_level: "SELF_ONLY", // safest for unaudited apps
+            privacy_level: privacyLevel,
             auto_add_music: true,
           },
           source_info: {
@@ -134,8 +150,26 @@ export const tiktokAdapter: PlatformAdapter = {
     if (input.mediaType !== "video") {
       throw new Error("TikTok accepts video or image only");
     }
-    // Inbox upload: no post_info needed — caption/privacy are set by the user
-    // when they open the draft in the TikTok app.
+
+    // Direct Post requires querying creator_info first to get the privacy_level options
+    // allowed for this account. TikTok rejects the publish if we pass an unsupported value.
+    const creatorRes = await fetch(CREATOR_INFO_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json; charset=UTF-8",
+      },
+    });
+    const creatorJson = await creatorRes.json();
+    const allowedPrivacy: string[] =
+      creatorJson.data?.privacy_level_options ?? ["SELF_ONLY"];
+    // Pick the most public option available (PUBLIC_TO_EVERYONE > MUTUAL_FOLLOW_FRIENDS > SELF_ONLY).
+    const privacyLevel =
+      allowedPrivacy.find((p) => p === "PUBLIC_TO_EVERYONE") ??
+      allowedPrivacy.find((p) => p === "MUTUAL_FOLLOW_FRIENDS") ??
+      allowedPrivacy[0] ??
+      "SELF_ONLY";
+
     const initRes = await fetch(PUBLISH_VIDEO_URL, {
       method: "POST",
       headers: {
@@ -143,6 +177,13 @@ export const tiktokAdapter: PlatformAdapter = {
         "Content-Type": "application/json; charset=UTF-8",
       },
       body: JSON.stringify({
+        post_info: {
+          title: (input.caption || "").slice(0, 2200),
+          privacy_level: privacyLevel,
+          disable_duet: false,
+          disable_comment: false,
+          disable_stitch: false,
+        },
         source_info: {
           source: "PULL_FROM_URL",
           video_url: input.mediaUrl,
