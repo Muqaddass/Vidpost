@@ -30,6 +30,8 @@ export const instagramAdapter: PlatformAdapter = {
       response_type: "code",
       scope: SCOPES,
       state,
+      // Force re-auth so users can switch accounts after disconnecting.
+      force_reauth: "true",
     });
     return `${AUTH_BASE}?${params.toString()}`;
   },

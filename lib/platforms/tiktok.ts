@@ -64,6 +64,11 @@ export const tiktokAdapter: PlatformAdapter = {
       scope: SCOPES,
       redirect_uri: getCallbackUrl("tiktok"),
       state,
+      // Forces TikTok to show the login/account-picker every time.
+      // Without this, TikTok silently re-authorizes the same account that's
+      // already signed in to the browser, making it impossible to switch
+      // accounts after disconnecting in VidPost.
+      force_reauth: "true",
     });
     return `${AUTH_BASE}?${params.toString()}`;
   },
