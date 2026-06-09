@@ -86,22 +86,54 @@ export const instagramAdapter: PlatformAdapter = {
       }
     }
 
-    if (longJson?.access_token) {
-      return {
-        access_token: longJson.access_token,
-        refresh_token: longJson.access_token, // IG uses the access token itself to refresh
-        expires_in: longJson.expires_in,
-        scope: SCOPES,
-      };
+    const finalToken = longJson?.access_token ?? shortToken;
+    const expiresIn = longJson?.access_token ? longJson.expires_in : 3600;
+    if (!longJson?.access_token) {
+      console.warn("Instagram long-lived exchange failed; using short-lived token (1h validity)");
     }
 
-    // Fallback: use the short-lived token. Works for ~1 hour; user reconnects after.
-    console.warn("Instagram long-lived exchange failed; using short-lived token (1h validity)");
+    // Use the user_id returned in the short-lived token response (Meta includes it)
+    // to pre-fetch the profile via the direct /<user_id> endpoint. This avoids the
+    // /me endpoint, which Meta returns 'Unsupported request - method type' on for
+    // many users in development mode.
+    const userId = String(shortJson.user_id ?? "");
+    let profile: { id: string; username: string | null; avatar: string | null } | undefined;
+    if (userId) {
+      const candidates: Array<() => Promise<Response>> = [
+        () => fetch(
+          `https://graph.instagram.com/v22.0/${userId}?fields=username,profile_picture_url&access_token=${encodeURIComponent(finalToken)}`,
+        ),
+        () => fetch(`https://graph.instagram.com/v22.0/${userId}?fields=username,profile_picture_url`, {
+          headers: { Authorization: `Bearer ${finalToken}` },
+        }),
+      ];
+      for (const attempt of candidates) {
+        try {
+          const r = await attempt();
+          if (r.ok) {
+            const j = await r.json();
+            profile = {
+              id: userId,
+              username: j.username ?? null,
+              avatar: j.profile_picture_url ?? null,
+            };
+            break;
+          }
+        } catch {
+          // try next
+        }
+      }
+      // If both /<user_id> attempts failed, still return at least the id —
+      // username can be filled later.
+      if (!profile) profile = { id: userId, username: null, avatar: null };
+    }
+
     return {
-      access_token: shortToken,
-      refresh_token: shortToken,
-      expires_in: 3600,
+      access_token: finalToken,
+      refresh_token: finalToken, // IG uses the access token itself to refresh
+      expires_in: expiresIn,
       scope: SCOPES,
+      profile,
     };
   },
 

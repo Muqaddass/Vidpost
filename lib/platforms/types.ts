@@ -6,6 +6,13 @@ export interface OAuthTokens {
   /** Seconds until access_token expires, if known. */
   expires_in?: number | null;
   scope?: string | null;
+  /**
+   * Optional: profile pre-fetched during token exchange.
+   * Useful when the same response that issues the token also contains the
+   * platform user_id (Instagram, etc.) — avoids a separate /me call that may
+   * not work for all users in development mode.
+   */
+  profile?: PlatformProfile;
 }
 
 export interface PlatformProfile {

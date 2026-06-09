@@ -93,7 +93,9 @@ export async function handleOAuthCallback(platform: Platform, req: NextRequest) 
   try {
     const adapter = getAdapter(platform);
     const tokens = await adapter.exchangeCode(code);
-    const profile = await adapter.fetchProfile(tokens.access_token);
+    // If the token exchange already produced profile info (e.g. Instagram, which
+    // returns user_id alongside the token), skip the separate fetchProfile call.
+    const profile = tokens.profile ?? (await adapter.fetchProfile(tokens.access_token));
 
     const expiresAt = tokens.expires_in
       ? new Date(Date.now() + tokens.expires_in * 1000).toISOString()
