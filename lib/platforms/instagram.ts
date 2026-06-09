@@ -186,18 +186,19 @@ export const instagramAdapter: PlatformAdapter = {
     }
     const creationId: string = containerJson.id;
 
-    // For video: poll status until FINISHED (or fail after ~60s)
-    if (input.mediaType === "video") {
-      for (let i = 0; i < 30; i++) {
-        await new Promise((r) => setTimeout(r, 2000));
-        const statusRes = await fetch(
-          `${GRAPH}/${creationId}?fields=status_code&access_token=${encodeURIComponent(accessToken)}`,
-        );
-        const statusJson = await statusRes.json();
-        if (statusJson.status_code === "FINISHED") break;
-        if (statusJson.status_code === "ERROR")
-          throw new Error(`Instagram container error: ${JSON.stringify(statusJson)}`);
-      }
+    // Poll container status until FINISHED. Images usually process fast but
+    // sometimes Meta returns "Media ID is not available" if you publish too soon.
+    // Videos may take up to ~60s. Poll for both, but with different max waits.
+    const maxPolls = input.mediaType === "video" ? 30 : 10;
+    for (let i = 0; i < maxPolls; i++) {
+      await new Promise((r) => setTimeout(r, 2000));
+      const statusRes = await fetch(
+        `${GRAPH}/${creationId}?fields=status_code&access_token=${encodeURIComponent(accessToken)}`,
+      );
+      const statusJson = await statusRes.json();
+      if (statusJson.status_code === "FINISHED") break;
+      if (statusJson.status_code === "ERROR")
+        throw new Error(`Instagram container error: ${JSON.stringify(statusJson)}`);
     }
 
     // Step 2: publish
