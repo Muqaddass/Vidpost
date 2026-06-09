@@ -97,7 +97,7 @@ export const tiktokAdapter: PlatformAdapter = {
   async publish({ accessToken, input }) {
     // Image path: TikTok photo carousel via Direct Post endpoint (audit approved).
     if (input.mediaType === "image") {
-      // Query creator_info for allowed privacy levels (same as video flow).
+      // Query creator_info for allowed privacy levels.
       const creatorRes = await fetch(CREATOR_INFO_URL, {
         method: "POST",
         headers: {
@@ -113,6 +113,9 @@ export const tiktokAdapter: PlatformAdapter = {
         allowedPrivacy.find((p) => p === "MUTUAL_FOLLOW_FRIENDS") ??
         allowedPrivacy[0] ??
         "SELF_ONLY";
+      console.log(
+        `[tiktok:photo] creator_info allowed=${JSON.stringify(allowedPrivacy)} chosen=${privacyLevel}`,
+      );
 
       const photoRes = await fetch(PUBLISH_PHOTO_URL, {
         method: "POST",
@@ -138,13 +141,44 @@ export const tiktokAdapter: PlatformAdapter = {
         }),
       });
       const photoJson = await photoRes.json();
+      console.log(`[tiktok:photo] init response:`, JSON.stringify(photoJson));
       if (!photoRes.ok || photoJson.error?.code !== "ok") {
         throw new Error(`TikTok photo publish failed: ${JSON.stringify(photoJson)}`);
       }
-      return {
-        platformPostId: photoJson.data?.publish_id ?? "pending",
-        platformPostUrl: null,
-      };
+      const photoPublishId: string = photoJson.data?.publish_id;
+      if (!photoPublishId) {
+        throw new Error(`TikTok photo: no publish_id returned: ${JSON.stringify(photoJson)}`);
+      }
+
+      // Poll status — same as video. Without this we can't tell if TikTok's async
+      // processing rejected the photo (often the case for unaudited photo posts).
+      let lastStatus: string | undefined;
+      let lastJson: unknown;
+      for (let i = 0; i < 30; i++) {
+        await new Promise((r) => setTimeout(r, 3000));
+        const statusRes = await fetch(STATUS_URL, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json; charset=UTF-8",
+          },
+          body: JSON.stringify({ publish_id: photoPublishId }),
+        });
+        const statusJson = await statusRes.json();
+        lastJson = statusJson;
+        lastStatus = statusJson.data?.status as string | undefined;
+        console.log(`[tiktok:photo:${photoPublishId}] poll #${i + 1} status=${lastStatus}`);
+        if (lastStatus === "PUBLISH_COMPLETE" || lastStatus === "SEND_TO_USER_INBOX") {
+          return { platformPostId: photoPublishId, platformPostUrl: null };
+        }
+        if (lastStatus === "FAILED") {
+          const reason = statusJson.data?.fail_reason ?? "unknown";
+          throw new Error(`TikTok photo processing failed: ${reason}`);
+        }
+      }
+      throw new Error(
+        `TikTok photo timed out at status=${lastStatus}; last response: ${JSON.stringify(lastJson)}`,
+      );
     }
 
     if (input.mediaType !== "video") {
