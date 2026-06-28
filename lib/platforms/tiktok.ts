@@ -1,31 +1,31 @@
+import { randomUUID } from "node:crypto";
 import sharp from "sharp";
 import type { PlatformAdapter } from "./types";
 import { getCallbackUrl } from "./config";
 import { uploadToR2 } from "@/lib/r2";
 
 /**
- * Fetches a possibly-PNG image from R2, converts it to JPEG, re-uploads to R2
- * with .jpg extension, and returns the new public URL. If it's already JPEG,
- * returns the original URL unchanged. TikTok rejects PNG photo posts.
+ * Normalize ANY source image into a TikTok-safe photo and re-host it on R2
+ * (our verified domain), returning the new public URL.
+ *
+ * TikTok photo posts reject PNGs and images outside its size limits
+ * ("picture_size_check_failed"). External images (e.g. Amazon CDN) often fail,
+ * so we always: fetch → auto-orient → cap at 1080px (no upscaling) → JPEG q90 →
+ * upload to R2.
  */
-async function ensureJpegOnR2(mediaUrl: string): Promise<string> {
-  // Quick path: not PNG, no work needed.
-  const lower = mediaUrl.toLowerCase();
-  if (!lower.endsWith(".png")) return mediaUrl;
-
+async function prepTikTokPhoto(mediaUrl: string): Promise<string> {
   const res = await fetch(mediaUrl);
-  if (!res.ok) throw new Error(`Could not fetch PNG from R2: ${res.status}`);
-  const pngBuf = Buffer.from(await res.arrayBuffer());
+  if (!res.ok) throw new Error(`Could not fetch image for TikTok: ${res.status}`);
+  const buf = Buffer.from(await res.arrayBuffer());
 
-  // Convert to JPEG. quality=90 is a good size/quality balance.
-  const jpegBuf = await sharp(pngBuf).jpeg({ quality: 90 }).toBuffer();
-
-  // Reuse the same path in R2, swap extension to .jpg
-  const pathFromUrl = new URL(mediaUrl).pathname.replace(/^\//, "");
-  const jpegKey = pathFromUrl.replace(/\.png$/i, ".jpg");
+  const jpegBuf = await sharp(buf)
+    .rotate()
+    .resize(1080, 1080, { fit: "inside", withoutEnlargement: true })
+    .jpeg({ quality: 90 })
+    .toBuffer();
 
   const { publicUrl } = await uploadToR2({
-    key: jpegKey,
+    key: `tiktok-photos/${randomUUID()}.jpg`,
     body: jpegBuf,
     contentType: "image/jpeg",
   });
@@ -133,8 +133,8 @@ export const tiktokAdapter: PlatformAdapter = {
   async publish({ accessToken, input }) {
     // Image path: TikTok photo carousel via Direct Post endpoint (audit approved).
     if (input.mediaType === "image") {
-      // TikTok rejects PNGs ("file_format_check_failed"). Convert on the fly.
-      const photoMediaUrl = await ensureJpegOnR2(input.mediaUrl);
+      // Normalize any external image to a TikTok-safe JPEG on our R2 domain.
+      const photoMediaUrl = await prepTikTokPhoto(input.mediaUrl);
       console.log(`[tiktok:photo] using mediaUrl=${photoMediaUrl}`);
       // Query creator_info for allowed privacy levels.
       const creatorRes = await fetch(CREATOR_INFO_URL, {
