@@ -7,7 +7,9 @@ const AUTH_BASE = "https://www.instagram.com/oauth/authorize";
 const TOKEN_URL = "https://api.instagram.com/oauth/access_token";
 const LONG_LIVED_URL = "https://graph.instagram.com/access_token";
 const REFRESH_URL = "https://graph.instagram.com/refresh_access_token";
-const ME_URL = "https://graph.instagram.com/v22.0/me";
+// IMPORTANT: Instagram-Login endpoints must be UNVERSIONED. The /v22.0 path on
+// graph.instagram.com returns "Unsupported request - method type: post/get".
+const ME_URL = "https://graph.instagram.com/me";
 const ME_FIELDS = "id,username,account_type,profile_picture_url";
 // Meta renamed these — newer names use the "business" prefix.
 // We only need basic profile + publishing; skip messages/comments/insights.
@@ -16,7 +18,7 @@ const SCOPES = [
   "instagram_business_content_publish",
 ].join(",");
 
-const GRAPH = "https://graph.instagram.com/v22.0";
+const GRAPH = "https://graph.instagram.com";
 
 export const instagramAdapter: PlatformAdapter = {
   id: "instagram",
@@ -112,40 +114,21 @@ export const instagramAdapter: PlatformAdapter = {
     let profile: { id: string; username: string | null; avatar: string | null } | undefined;
 
     const profileFields = "id,username,account_type,profile_picture_url";
-    const candidates: Array<{ name: string; run: () => Promise<Response> }> = userId
-      ? [
-          {
-            name: `GET /v22.0/${userId} (query token)`,
-            run: () => fetch(
-              `https://graph.instagram.com/v22.0/${userId}?fields=${profileFields}&access_token=${encodeURIComponent(finalToken)}`,
-            ),
-          },
-          {
-            name: `GET /v22.0/${userId} (bearer)`,
-            run: () => fetch(`https://graph.instagram.com/v22.0/${userId}?fields=${profileFields}`, {
-              headers: { Authorization: `Bearer ${finalToken}` },
-            }),
-          },
-          {
-            name: "GET /v22.0/me (query token)",
-            run: () => fetch(
-              `https://graph.instagram.com/v22.0/me?fields=${profileFields}&access_token=${encodeURIComponent(finalToken)}`,
-            ),
-          },
-          {
-            name: "GET /v22.0/me (bearer)",
-            run: () => fetch(`https://graph.instagram.com/v22.0/me?fields=${profileFields}`, {
-              headers: { Authorization: `Bearer ${finalToken}` },
-            }),
-          },
-          {
-            name: "GET /me (no version, query token)",
-            run: () => fetch(
-              `https://graph.instagram.com/me?fields=${profileFields}&access_token=${encodeURIComponent(finalToken)}`,
-            ),
-          },
-        ]
-      : [];
+    // Unversioned only — graph.instagram.com rejects /v22.0 for IG-Login.
+    const candidates: Array<{ name: string; run: () => Promise<Response> }> = [
+      {
+        name: "GET /me (query token)",
+        run: () => fetch(
+          `https://graph.instagram.com/me?fields=${profileFields}&access_token=${encodeURIComponent(finalToken)}`,
+        ),
+      },
+      {
+        name: "GET /me (bearer)",
+        run: () => fetch(`https://graph.instagram.com/me?fields=${profileFields}`, {
+          headers: { Authorization: `Bearer ${finalToken}` },
+        }),
+      },
+    ];
 
     for (const c of candidates) {
       try {
@@ -246,8 +229,9 @@ export const instagramAdapter: PlatformAdapter = {
     } else {
       containerParams.image_url = input.mediaUrl;
     }
+    // Use the unversioned `me` node — most reliable for IG-Login publishing.
     const containerRes = await fetch(
-      `${GRAPH}/${platformUserId}/media`,
+      `${GRAPH}/me/media`,
       {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -277,7 +261,7 @@ export const instagramAdapter: PlatformAdapter = {
 
     // Step 2: publish
     const pubRes = await fetch(
-      `${GRAPH}/${platformUserId}/media_publish`,
+      `${GRAPH}/me/media_publish`,
       {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
