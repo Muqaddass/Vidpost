@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { bearerFromHeader, verifyApiKey } from "@/lib/api-keys";
 import { publishForUser } from "@/lib/publish";
 
 export const runtime = "nodejs";
@@ -13,16 +13,21 @@ const schema = z.object({
   title: z.string().max(200).optional(),
   caption: z.string().max(5000).default(""),
   mediaUrl: z.string().url(),
-  mediaType: z.enum(["video", "image"]),
+  mediaType: z.enum(["video", "image"]).default("image"),
   platforms: z.array(z.enum(PLATFORMS)).min(1),
 });
 
+/**
+ * Machine-to-machine publish endpoint. Authenticated by a VidPost API key
+ * (Authorization: Bearer vp_...), not a session cookie. Posts on behalf of the
+ * key's owner using their connected accounts. Used by the Amazon affiliate
+ * engine (and any other trusted caller).
+ */
 export async function POST(req: NextRequest) {
-  const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const userId = await verifyApiKey(bearerFromHeader(req.headers.get("authorization")));
+  if (!userId) {
+    return NextResponse.json({ error: "invalid_api_key" }, { status: 401 });
+  }
 
   let body;
   try {
@@ -33,7 +38,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const outcome = await publishForUser(user.id, body);
+    const outcome = await publishForUser(userId, body);
     return NextResponse.json(outcome);
   } catch (e) {
     return NextResponse.json(

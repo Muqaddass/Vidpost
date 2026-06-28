@@ -5,6 +5,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { SignOutButton } from "./SignOutButton";
+import { ApiKeys } from "./ApiKeys";
 
 export const metadata = { title: "Settings · VidPost" };
 export const dynamic = "force-dynamic";
@@ -40,6 +41,15 @@ export default async function SettingsPage() {
               <Badge variant="secondary">Free</Badge>
             </div>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>API keys</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ApiKeys />
         </CardContent>
       </Card>
 
