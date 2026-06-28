@@ -20,6 +20,22 @@ const SCOPES = [
 
 const GRAPH = "https://graph.instagram.com";
 
+/** Turn Meta's cryptic errors into actionable messages. */
+function igFriendlyError(json: unknown): string {
+  const msg =
+    (json as { error?: { message?: string } })?.error?.message ??
+    JSON.stringify(json);
+  if (/Unsupported request - method type/i.test(msg)) {
+    return (
+      "This Instagram account can't use the publishing API — it must be a " +
+      "Professional account (Business or Creator). In the Instagram app: " +
+      "Settings → Account type and tools → Switch to professional account, " +
+      "then Disconnect and Connect again here."
+    );
+  }
+  return `Instagram: ${msg}`;
+}
+
 export const instagramAdapter: PlatformAdapter = {
   id: "instagram",
 
@@ -214,7 +230,9 @@ export const instagramAdapter: PlatformAdapter = {
         lastErr = e instanceof Error ? e.message : String(e);
       }
     }
-    throw new Error(`Instagram profile failed (all methods): ${lastErr}`);
+    let parsed: unknown = lastErr;
+    try { parsed = JSON.parse(lastErr); } catch { /* keep string */ }
+    throw new Error(igFriendlyError(parsed));
   },
 
   async publish({ accessToken, platformUserId, input }) {
@@ -240,7 +258,7 @@ export const instagramAdapter: PlatformAdapter = {
     );
     const containerJson = await containerRes.json();
     if (!containerRes.ok) {
-      throw new Error(`Instagram container failed: ${JSON.stringify(containerJson)}`);
+      throw new Error(igFriendlyError(containerJson));
     }
     const creationId: string = containerJson.id;
 
@@ -273,7 +291,7 @@ export const instagramAdapter: PlatformAdapter = {
     );
     const pubJson = await pubRes.json();
     if (!pubRes.ok) {
-      throw new Error(`Instagram publish failed: ${JSON.stringify(pubJson)}`);
+      throw new Error(igFriendlyError(pubJson));
     }
     return {
       platformPostId: pubJson.id,
