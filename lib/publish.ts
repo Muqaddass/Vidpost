@@ -1,5 +1,5 @@
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import { decrypt } from "@/lib/encrypt";
+import { decrypt, encrypt } from "@/lib/encrypt";
 import { getAdapter } from "@/lib/platforms";
 import type { Platform } from "@/lib/types/database";
 
@@ -69,19 +69,81 @@ export async function publishForUser(
       continue;
     }
     try {
-      const accessToken = decrypt(acct.access_token);
-      const refreshToken = acct.refresh_token ? decrypt(acct.refresh_token) : null;
-      const r = await getAdapter(platform).publish({
-        accessToken,
-        refreshToken,
-        platformUserId: acct.platform_user_id,
-        input: {
-          mediaUrl: body.mediaUrl,
-          mediaType: body.mediaType,
-          caption: body.caption,
-          title: body.title,
-        },
-      });
+      const adapter = getAdapter(platform);
+      let accessToken = decrypt(acct.access_token);
+      let refreshToken = acct.refresh_token ? decrypt(acct.refresh_token) : null;
+
+      // Refresh the access token if it's expired/near-expiry (TikTok tokens last
+      // only ~24h). Persist the new tokens so the next post is fresh too.
+      const expMs = acct.token_expires_at ? Date.parse(acct.token_expires_at) : null;
+      const nearExpiry = expMs !== null && expMs < Date.now() + 120_000;
+      if (nearExpiry && refreshToken && adapter.refresh) {
+        try {
+          const t = await adapter.refresh(refreshToken);
+          accessToken = t.access_token;
+          refreshToken = t.refresh_token ?? refreshToken;
+          await admin
+            .from("connected_accounts")
+            .update({
+              access_token: encrypt(accessToken),
+              refresh_token: refreshToken ? encrypt(refreshToken) : acct.refresh_token,
+              token_expires_at: t.expires_in
+                ? new Date(Date.now() + t.expires_in * 1000).toISOString()
+                : acct.token_expires_at,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", acct.id);
+        } catch (re) {
+          console.error(`[publish:${platform}] refresh failed`, re);
+        }
+      }
+
+      let r;
+      try {
+        r = await adapter.publish({
+          accessToken,
+          refreshToken,
+          platformUserId: acct.platform_user_id,
+          input: {
+            mediaUrl: body.mediaUrl,
+            mediaType: body.mediaType,
+            caption: body.caption,
+            title: body.title,
+          },
+        });
+      } catch (pubErr) {
+        // Retry once if it failed due to an invalid/expired access token.
+        const m = pubErr instanceof Error ? pubErr.message : String(pubErr);
+        if (refreshToken && adapter.refresh && /access_token_invalid|invalid.*token|expired/i.test(m)) {
+          const t = await adapter.refresh(refreshToken);
+          accessToken = t.access_token;
+          refreshToken = t.refresh_token ?? refreshToken;
+          await admin
+            .from("connected_accounts")
+            .update({
+              access_token: encrypt(accessToken),
+              refresh_token: refreshToken ? encrypt(refreshToken) : acct.refresh_token,
+              token_expires_at: t.expires_in
+                ? new Date(Date.now() + t.expires_in * 1000).toISOString()
+                : acct.token_expires_at,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", acct.id);
+          r = await adapter.publish({
+            accessToken,
+            refreshToken,
+            platformUserId: acct.platform_user_id,
+            input: {
+              mediaUrl: body.mediaUrl,
+              mediaType: body.mediaType,
+              caption: body.caption,
+              title: body.title,
+            },
+          });
+        } else {
+          throw pubErr;
+        }
+      }
       results.push({ platform, ok: true, id: r.platformPostId });
       await admin.from("post_results").insert({
         post_id: post.id,
