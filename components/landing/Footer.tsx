@@ -10,9 +10,10 @@ export function LandingFooter() {
           </span>
           <span>© {new Date().getFullYear()} VidPost</span>
         </div>
-        <nav className="flex items-center gap-6">
+        <nav className="flex flex-wrap items-center justify-center gap-4 md:gap-6">
           <Link href="/privacy-policy" className="hover:text-foreground">Privacy Policy</Link>
           <Link href="/terms-of-service" className="hover:text-foreground">Terms of Service</Link>
+          <Link href="/data-deletion" className="hover:text-foreground">Data Deletion</Link>
         </nav>
       </div>
     </footer>
